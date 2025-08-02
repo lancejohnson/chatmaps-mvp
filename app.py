@@ -138,23 +138,19 @@ def load_parcels_from_db(limit=1000, simplify_tolerance=0.0001):
                     else f"Parcel {row[id_column]}",
                 }
 
-                # Always include address field (even if empty)
-                address_parts = []
-                if pd.notna(row.get("situs_house_number")):
-                    address_parts.append(str(row["situs_house_number"]))
-                if pd.notna(row.get("situs_street_name")):
-                    address_parts.append(str(row["situs_street_name"]))
+                # Add address information if available
+                if pd.notna(row.get("situs_house_number")) or pd.notna(
+                    row.get("situs_street_name")
+                ):
+                    address_parts = []
+                    if pd.notna(row.get("situs_house_number")):
+                        address_parts.append(str(row["situs_house_number"]))
+                    if pd.notna(row.get("situs_street_name")):
+                        address_parts.append(str(row["situs_street_name"]))
+                    properties["address"] = " ".join(address_parts)
 
-                properties["address"] = (
-                    " ".join(address_parts) if address_parts else "No address available"
-                )
-
-                # Always include city field (even if empty)
-                properties["city"] = (
-                    str(row["situs_city_name"])
-                    if pd.notna(row.get("situs_city_name"))
-                    else "No city available"
-                )
+                if pd.notna(row.get("situs_city_name")):
+                    properties["city"] = str(row["situs_city_name"])
 
                 feature = {
                     "type": "Feature",

@@ -65,12 +65,12 @@ def handle_chat_query(prompt):
 - [x] Add SQL safety validation (SELECT-only)
 - [x] Implement query execution with PostGIS
 
-### Phase 3: UI Integration
+### Phase 3: UI Integration ✅ COMPLETED
 
-- [ ] Modify chat handler in `app.py`
-- [ ] Add query results to map visualization
-- [ ] Display query summary and generated SQL
-- [ ] Add loading states and error handling
+- [x] Modify chat handler in `app.py`
+- [x] Add query results to map visualization
+- [x] Display query summary and generated SQL
+- [x] Add loading states and error handling
 
 ### Phase 4: Polish
 

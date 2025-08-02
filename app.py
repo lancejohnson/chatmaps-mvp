@@ -66,15 +66,7 @@ def create_santa_clara_map():
                 "fillOpacity": 0.1,
                 "opacity": 0.8,
             },
-            popup=folium.Popup(
-                f"""
-                <b>Santa Clara County</b><br>
-                Area: {float(properties.get('acres', 0)):,.0f} acres<br>
-                Size: {float(properties.get('sq_miles', 0)):,.1f} sq miles
-                """,
-                parse_html=True,
-            ),
-            tooltip="Santa Clara County Boundary",
+            highlight=False,  # Disable the blue click highlight box
         ).add_to(m)
     else:
         # Fallback to approximate boundary if file loading fails
@@ -100,54 +92,15 @@ def create_santa_clara_map():
 
 def main():
     st.title("🗺️ ChatMap MVP")
-    st.markdown("*Explore Santa Clara County parcels through natural language queries*")
 
-    # Create two columns for layout
-    col1, col2 = st.columns([3, 1])
+    # Create and display the map
+    map_obj = create_santa_clara_map()
 
-    with col1:
-        st.markdown("### Map View")
-
-        # Create and display the map
-        map_obj = create_santa_clara_map()
-
-        # Display the map using streamlit-folium
-        map_data = st_folium(
-            map_obj, width=800, height=500, returned_objects=["last_object_clicked"]
-        )
-
-    with col2:
-        st.markdown("### Map Info")
-
-        # Load boundary info for display
-        boundary_geojson, properties = load_santa_clara_boundary()
-
-        if properties:
-            st.info(f"""
-            📍 **Santa Clara County, CA**
-            
-            **Boundary Details:**
-            - Area: {float(properties.get('acres', 0)):,.0f} acres
-            - Size: {float(properties.get('sq_miles', 0)):,.1f} sq miles
-            - Data Source: Official county boundary
-            """)
-        else:
-            st.info("📍 Santa Clara County, CA")
-
-        st.markdown("""
-        **Current View:**
-        - Official county boundary in red
-        - OpenStreetMap tiles
-        - Ready for parcel data integration
-        """)
-
-        if map_data["last_object_clicked"]:
-            st.markdown("**Last Clicked:**")
-            st.json(map_data["last_object_clicked"])
+    # Display the map using streamlit-folium
+    st_folium(map_obj, width=800, height=500)
 
     # Chat interface section
-    st.markdown("---")
-    st.markdown("### 💬 Chat with Your Data")
+    st.markdown("### 💬 Chat with Santa Clara County")
 
     # Initialize chat history
     if "messages" not in st.session_state:

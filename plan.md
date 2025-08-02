@@ -59,12 +59,11 @@ def handle_chat_query(prompt):
 - [x] Implement basic prompt → SQL generation
 - [x] Run a few tests to see if they make sense
 
-### Phase 2: Query Execution  
+### Phase 2: Query Execution ✅
 
-- [ ] Create `src/database/query_executor.py`
-- [ ] Add SQL safety validation (SELECT-only)
-- [ ] Implement query execution with PostGIS
-- [ ] Convert results to GeoJSON format
+- [x] Create `src/database/query_executor.py`
+- [x] Add SQL safety validation (SELECT-only)
+- [x] Implement query execution with PostGIS
 
 ### Phase 3: UI Integration
 

@@ -20,7 +20,7 @@ Integrate GPT-4o to convert natural language chat input into PostGIS SQL queries
 class QueryGenerator:
     def generate_sql_query(user_prompt, schema_context):
         # System prompt + few-shot examples + schema context
-        # GPT-4o API call
+        # GPT-4.1 API call
         # Return SQL query string
     
     def validate_query(sql_query):
@@ -51,12 +51,13 @@ def handle_chat_query(prompt):
 
 ## Implementation Phases
 
-### Phase 1: Core LLM Integration
+### Phase 1: Core LLM Integration ✅
 
-- [ ] Add `openai>=1.0.0` to requirements.txt
-- [ ] Create `src/llm/query_generator.py`
-- [ ] Add `OPENAI_API_KEY` environment variable
-- [ ] Implement basic prompt → SQL generation
+- [x] Add `openai>=1.0.0` to requirements.txt
+- [x] Create `src/llm/query_generator.py`
+- [x] Add `OPENAI_API_KEY` environment variable
+- [x] Implement basic prompt → SQL generation
+- [x] Run a few tests to see if they make sense
 
 ### Phase 2: Query Execution  
 

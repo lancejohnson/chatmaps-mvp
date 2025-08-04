@@ -1180,12 +1180,25 @@ def create_santa_clara_map(query_results=None, selected_property=None):
     if selected_property and selected_property.get("coordinates"):
         map_center = selected_property["coordinates"]
         map_zoom = 16  # Zoom in closer to the selected property
+        m = folium.Map(location=map_center, zoom_start=map_zoom, tiles="OpenStreetMap")
+    elif query_results and query_results.get("features"):
+        # Calculate bounds for all search results and auto-fit
+        bounds = calculate_bounds(query_results)
+        if bounds:
+            # Create map without specific center/zoom - will be set by fit_bounds
+            m = folium.Map(tiles="OpenStreetMap")
+            # Fit map to show all search results
+            m.fit_bounds(bounds)
+        else:
+            # Fallback to default if bounds calculation fails
+            m = folium.Map(
+                location=default_center, zoom_start=default_zoom, tiles="OpenStreetMap"
+            )
     else:
-        map_center = default_center
-        map_zoom = default_zoom
-
-    # Create the map
-    m = folium.Map(location=map_center, zoom_start=map_zoom, tiles="OpenStreetMap")
+        # Default map view when no search results
+        m = folium.Map(
+            location=default_center, zoom_start=default_zoom, tiles="OpenStreetMap"
+        )
 
     # Load boundary from GeoJSON file
     boundary_geojson, properties = load_santa_clara_boundary()
@@ -1359,6 +1372,60 @@ def extract_center_coordinates(geometry):
     except (KeyError, IndexError, TypeError):
         pass
     return None
+
+
+def extract_all_coordinates(geometry):
+    """Extract all coordinates from geometry for bounds calculation"""
+    coords = []
+    try:
+        if geometry["type"] == "Polygon":
+            # Get all coordinates from the outer ring
+            coords.extend(geometry["coordinates"][0])
+        elif geometry["type"] == "Point":
+            coords.append(geometry["coordinates"])
+        elif geometry["type"] == "MultiPolygon":
+            # Get coordinates from all polygons
+            for polygon in geometry["coordinates"]:
+                coords.extend(polygon[0])  # Outer ring of each polygon
+    except (KeyError, IndexError, TypeError):
+        pass
+    return coords
+
+
+def calculate_bounds(query_results):
+    """Calculate bounding box for all search result geometries"""
+    if not query_results or not query_results.get("features"):
+        return None
+
+    all_coords = []
+
+    # Extract coordinates from all features
+    for feature in query_results["features"]:
+        geometry = feature.get("geometry")
+        if geometry:
+            coords = extract_all_coordinates(geometry)
+            all_coords.extend(coords)
+
+    if not all_coords:
+        return None
+
+    # Calculate bounds [south, west, north, east]
+    lats = [coord[1] for coord in all_coords]
+    lngs = [coord[0] for coord in all_coords]
+
+    south = min(lats)
+    north = max(lats)
+    west = min(lngs)
+    east = max(lngs)
+
+    # Add small padding (about 5% of the span)
+    lat_padding = (north - south) * 0.05
+    lng_padding = (east - west) * 0.05
+
+    return [
+        [south - lat_padding, west - lng_padding],  # Southwest corner
+        [north + lat_padding, east + lng_padding],  # Northeast corner
+    ]
 
 
 def show_schema_info():

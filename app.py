@@ -463,19 +463,19 @@ def main():
             # Display the result
             st.markdown(result["response_message"])
 
-            # Update map with new query results if successful
-            if result["success"] and result.get("result_data"):
-                st.session_state.query_results = result["result_data"]
-                # Trigger rerun to update the map
-                st.rerun()
-            elif result["success"] and result.get("row_count", 0) == 0:
-                # Clear previous results if no matches found
-                st.session_state.query_results = None
-
         # Add assistant response to chat history
         st.session_state.messages.append(
             {"role": "assistant", "content": result["response_message"]}
         )
+
+        # Update map with new query results if successful (after saving message)
+        if result["success"] and result.get("result_data"):
+            st.session_state.query_results = result["result_data"]
+            # Trigger rerun to update the map
+            st.rerun()
+        elif result["success"] and result.get("row_count", 0) == 0:
+            # Clear previous results if no matches found
+            st.session_state.query_results = None
 
     # Add helpful examples
     with st.expander("💡 Example Questions"):

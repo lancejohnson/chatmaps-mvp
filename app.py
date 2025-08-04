@@ -173,6 +173,31 @@ LIST_VALUES_TOOL = {
     },
 }
 
+# Define the find specific property tool for direct property lookups
+FIND_SPECIFIC_PROPERTY_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "find_specific_property",
+        "description": "Find a specific property by APN (parcel number), exact address, or coordinates. Use this when the user provides specific identifiers like '123-45-678', '123 Main St', or coordinates like '37.4419, -122.1430'",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "lookup_value": {
+                    "type": "string",
+                    "description": "The specific value to look up: APN (e.g. '123-45-678'), address (e.g. '123 Main Street'), or coordinates (e.g. '37.4419, -122.1430')",
+                },
+                "lookup_type": {
+                    "type": "string",
+                    "enum": ["apn", "address", "coordinates", "auto"],
+                    "description": "Type of lookup: 'apn' for parcel numbers, 'address' for street addresses, 'coordinates' for lat/long, 'auto' to detect automatically",
+                    "default": "auto",
+                },
+            },
+            "required": ["lookup_value"],
+        },
+    },
+}
+
 
 def execute_search_properties(query: str, max_results: int = 100):
     """
@@ -452,6 +477,180 @@ def execute_list_values(query: str):
         }
 
 
+def execute_find_specific_property(lookup_value: str, lookup_type: str = "auto"):
+    """
+    Find a specific property by APN, address, or coordinates with optimized queries.
+
+    Args:
+        lookup_value: The value to search for (APN, address, or coordinates)
+        lookup_type: Type of lookup ('apn', 'address', 'coordinates', 'auto')
+
+    Returns:
+        Dictionary with search results and metadata
+    """
+    import re
+
+    try:
+        db_engine = get_db_engine()
+        if not db_engine:
+            return {
+                "success": False,
+                "message": "Database connection not available. Please check your database configuration.",
+                "data": None,
+                "row_count": 0,
+                "sql_query": None,
+            }
+
+        # Auto-detect lookup type if not specified
+        if lookup_type == "auto":
+            lookup_type = detect_lookup_type(lookup_value)
+
+        # Generate optimized SQL based on lookup type
+        sql_query = None
+
+        if lookup_type == "apn":
+            # Clean APN input (remove spaces, normalize dashes)
+            apn_clean = re.sub(r"[^\d\-]", "", lookup_value)
+            sql_query = f"""
+            SELECT ogc_fid, apn, situs_house_number, situs_street_name, situs_city_name, 
+                   situs_zip_code, shape_area, shape_perimeter,
+                   ST_AsGeoJSON(wkb_geometry) as geometry
+            FROM parcels 
+            WHERE apn = '{apn_clean}' OR apn LIKE '%{apn_clean}%'
+            LIMIT 10
+            """
+
+        elif lookup_type == "address":
+            # Use LLM to generate address query - handles parsing intelligently
+            query_generator = get_query_generator()
+            if not query_generator:
+                return {
+                    "success": False,
+                    "message": "Query generator not available for address lookup.",
+                    "data": None,
+                    "row_count": 0,
+                    "sql_query": None,
+                }
+
+            # Get schema context and let LLM handle the address parsing
+            from schema import get_llm_schema_context
+
+            schema_context = get_llm_schema_context("parcels")
+
+            # Create a focused query for the specific address
+            address_query = f"Find the exact property at address: {lookup_value}"
+            success, sql_or_error, validation_message = (
+                query_generator.generate_and_validate(address_query, schema_context)
+            )
+
+            if success:
+                sql_query = sql_or_error
+                print(f"DEBUG - Generated SQL: {sql_query}")
+            else:
+                return {
+                    "success": False,
+                    "message": f"Could not generate address lookup query: {sql_or_error}",
+                    "data": None,
+                    "row_count": 0,
+                    "sql_query": None,
+                }
+
+        elif lookup_type == "coordinates":
+            # Parse coordinates
+            coords = parse_coordinates(lookup_value)
+            if coords:
+                lat, lon = coords
+                # Find parcels within 100 meters of the point
+                sql_query = f"""
+                SELECT ogc_fid, apn, situs_house_number, situs_street_name, situs_city_name,
+                       situs_zip_code, shape_area, shape_perimeter,
+                       ST_AsGeoJSON(wkb_geometry) as geometry,
+                       ST_Distance(wkb_geometry, ST_SetSRID(ST_MakePoint({lon}, {lat}), 4326)) as distance
+                FROM parcels 
+                WHERE ST_DWithin(wkb_geometry, ST_SetSRID(ST_MakePoint({lon}, {lat}), 4326), 0.001)
+                ORDER BY distance
+                LIMIT 10
+                """
+
+        if not sql_query:
+            return {
+                "success": False,
+                "message": f"Could not generate a valid query for lookup type '{lookup_type}' with value '{lookup_value}'",
+                "data": None,
+                "row_count": 0,
+                "sql_query": None,
+            }
+
+        # Execute the optimized query
+        executor = QueryExecutor(max_results=10)
+        execution_result = executor.execute_query(sql_query, db_engine)
+
+        return {
+            "success": execution_result["success"],
+            "message": execution_result["message"],
+            "data": execution_result["data"],
+            "row_count": execution_result["row_count"],
+            "sql_query": sql_query,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"❌ Property Lookup Error\n\n{str(e)}",
+            "data": None,
+            "row_count": 0,
+            "sql_query": None,
+        }
+
+
+def detect_lookup_type(value: str) -> str:
+    """Detect the type of lookup based on the input value."""
+    import re
+
+    # APN patterns: 123-45-678, 12345678, etc.
+    if re.match(r"^\d{3}-?\d{2}-?\d{3}$", value.replace(" ", "").replace("-", "")):
+        return "apn"
+
+    # Coordinate patterns: 37.4419, -122.1430 or (37.4419, -122.1430)
+    coord_pattern = r"[-+]?\d*\.?\d+\s*,\s*[-+]?\d*\.?\d+"
+    if re.search(coord_pattern, value):
+        return "coordinates"
+
+    # Address patterns: contains numbers and street indicators
+    if re.search(
+        r"\d+.*\b(st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|way|ln|lane|ct|court)\b",
+        value.lower(),
+    ):
+        return "address"
+
+    # Default to address for other text inputs
+    return "address"
+
+
+# parse_address_components removed - using LLM-based parsing for better accuracy
+
+
+def parse_coordinates(coord_str: str) -> tuple:
+    """Parse coordinate string into (lat, lon) tuple."""
+    import re
+
+    # Remove parentheses and extra spaces
+    cleaned = re.sub(r"[()]", "", coord_str)
+
+    # Extract two numbers separated by comma
+    match = re.findall(r"[-+]?\d*\.?\d+", cleaned)
+    if len(match) >= 2:
+        try:
+            lat, lon = float(match[0]), float(match[1])
+            # Basic validation for reasonable lat/lon ranges
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                return (lat, lon)
+        except ValueError:
+            pass
+
+    return None
+
+
 def process_chat_with_function_calling(user_prompt: str, chat_history: list):
     """
     Process a chat message using OpenAI function calling to decide whether to search properties or just chat.
@@ -478,7 +677,13 @@ def process_chat_with_function_calling(user_prompt: str, chat_history: list):
                 "role": "system",
                 "content": """You are a helpful assistant for exploring Santa Clara County property data. 
 
-You have access to three functions. CAREFULLY choose the right one:
+You have access to four functions. CAREFULLY choose the right one:
+
+**find_specific_property** - Use when users provide SPECIFIC identifiers for a single property:
+   - "Find parcel 123-45-678" → Direct APN lookup
+   - "Show me property at 123 Main Street" → Exact address lookup
+   - "What's at coordinates 37.4419, -122.1430" → Coordinate lookup
+   - Any time they give you a specific APN, exact address, or lat/long coordinates
 
 **analyze_properties** - Use for questions asking for NUMBERS/STATISTICS (no map display):
    - "How many properties..." → COUNT 
@@ -488,11 +693,11 @@ You have access to three functions. CAREFULLY choose the right one:
    - "Average property size in [city]?" → AVERAGE with filter
    - Any question where the answer is a NUMBER or STATISTIC
 
-**search_properties** - Use when users want to SEE/FIND individual properties on the map:
+**search_properties** - Use when users want to SEE/FIND multiple properties on the map:
    - "Show me properties over X acres" → Display on map
    - "Find properties on Main Street" → Show locations  
    - "Properties in San Jose" → Map individual parcels
-   - When they want to see specific properties highlighted
+   - When they want to see specific properties highlighted (but not one exact property)
 
 **list_values** - Use when users want to EXPLORE/LIST what options are available:
    - "What cities are available?" → List distinct city names
@@ -502,8 +707,9 @@ You have access to three functions. CAREFULLY choose the right one:
    - Any question asking for distinct/unique values from the database
 
 KEY DISTINCTIONS: 
+- "Find parcel X" or "property at X address" = find_specific_property (exact lookup)
 - "How many X?" = analyze_properties (returns a number)
-- "Show me X" = search_properties (returns map markers)
+- "Show me properties..." = search_properties (returns multiple map markers)
 - "What X are available?" = list_values (returns a list of options)
 
 For general conversation, respond normally without using functions.""",
@@ -520,7 +726,12 @@ For general conversation, respond normally without using functions.""",
         response = client.chat.completions.create(
             model="gpt-4.1",
             messages=messages,
-            tools=[SEARCH_PROPERTIES_TOOL, ANALYZE_PROPERTIES_TOOL, LIST_VALUES_TOOL],
+            tools=[
+                SEARCH_PROPERTIES_TOOL,
+                ANALYZE_PROPERTIES_TOOL,
+                LIST_VALUES_TOOL,
+                FIND_SPECIFIC_PROPERTY_TOOL,
+            ],
             tool_choice="auto",  # Let GPT decide when to use the tool
             temperature=0.1,
         )
@@ -765,6 +976,99 @@ For general conversation, respond normally without using functions.""",
                         return {
                             "success": False,
                             "response": "❌ **Error:** Could not parse list values parameters. Please try rephrasing your question.",
+                            "search_results": None,
+                        }
+
+                elif tool_call.function.name == "find_specific_property":
+                    # Extract arguments and execute the specific property lookup
+                    try:
+                        args = json.loads(tool_call.function.arguments)
+                        lookup_value = args["lookup_value"]
+                        lookup_type = args.get("lookup_type", "auto")
+
+                        # Debug: Log what function calling extracted
+                        print(
+                            f"DEBUG - Function calling extracted for property lookup: value='{lookup_value}', type='{lookup_type}'"
+                        )
+
+                        # Execute the specific property lookup
+                        lookup_result = execute_find_specific_property(
+                            lookup_value, lookup_type
+                        )
+
+                        # Create a follow-up message with the lookup results
+                        tool_message = {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(
+                                {
+                                    "success": lookup_result["success"],
+                                    "message": lookup_result["message"],
+                                    "row_count": lookup_result["row_count"],
+                                    "sql_query": lookup_result.get("sql_query", ""),
+                                }
+                            ),
+                        }
+
+                        # Get final response from GPT incorporating the lookup results
+                        final_messages = messages + [message, tool_message]
+                        final_response = client.chat.completions.create(
+                            model="gpt-4.1", messages=final_messages, temperature=0.1
+                        )
+
+                        final_content = final_response.choices[0].message.content
+
+                        # Format the response nicely for property lookup
+                        if lookup_result["success"] and lookup_result["row_count"] > 0:
+                            detected_type = detect_lookup_type(lookup_value)
+                            formatted_response = f"""🎯 **Found {lookup_result['row_count']} propert{'y' if lookup_result['row_count'] == 1 else 'ies'}** (detected as {detected_type} lookup)
+
+{final_content}
+
+**SQL Query Used:**
+```sql
+{lookup_result.get('sql_query', 'N/A')}
+```
+
+🗺️ **The property is now highlighted on the map above!**"""
+                        elif (
+                            lookup_result["success"] and lookup_result["row_count"] == 0
+                        ):
+                            detected_type = detect_lookup_type(lookup_value)
+                            formatted_response = f"""ℹ️ **No property found** (searched as {detected_type})
+
+{final_content}
+
+**SQL Query Used:**
+```sql
+{lookup_result.get('sql_query', 'N/A')}
+```
+
+💡 Please check the format and try again:
+- **APN**: Try format like '123-45-678'
+- **Address**: Try '123 Main Street' or '123 Main St, San Jose'
+- **Coordinates**: Try '37.4419, -122.1430'"""
+                        else:
+                            formatted_response = f"""❌ **Property Lookup Error**
+
+{final_content}
+
+**Error:** {lookup_result['message']}"""
+
+                        return {
+                            "success": lookup_result["success"],
+                            "response": formatted_response,
+                            "search_results": lookup_result["data"]
+                            if lookup_result["success"]
+                            else None,
+                            "row_count": lookup_result["row_count"],
+                            "is_specific_lookup": True,
+                        }
+
+                    except json.JSONDecodeError:
+                        return {
+                            "success": False,
+                            "response": "❌ **Error:** Could not parse property lookup parameters. Please try rephrasing your question.",
                             "search_results": None,
                         }
 

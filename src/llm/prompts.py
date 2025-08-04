@@ -28,11 +28,17 @@ SPATIAL QUERY PATTERNS:
 - Parcels containing point: ST_Contains(wkb_geometry, ST_Point(lon, lat, 4326))
 - Parcels intersecting area: ST_Intersects(wkb_geometry, other_geometry)
 
+ADDRESS QUERY PATTERNS (CRITICAL FOR EXACT ADDRESS MATCHING):
+- Street names WITHOUT type: "Pioneer Way" → situs_street_name = 'PIONEER' AND situs_street_type = 'WY'
+- Cities in UPPERCASE: "Mountain View" → situs_city_name = 'MOUNTAIN VIEW'
+- ZIP codes with wildcard: "94041" → situs_zip_code LIKE '94041%' (NEVER use = for ZIP codes)
+- Complete address: situs_house_number = '335' AND situs_street_name = 'PIONEER' AND situs_street_type = 'WY' AND situs_city_name = 'MOUNTAIN VIEW' AND situs_zip_code LIKE '94041%'
+
 REQUIRED COLUMNS:
 - Always include: ogc_fid, apn, situs_street_name, situs_city_name
 - Always include: ST_AsGeoJSON(wkb_geometry) as geometry
 - Always include: ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres
-- Optional: situs_house_number, situs_zip_code
+- Optional: situs_house_number, situs_zip_code, situs_street_type, shape_area, shape_length
 
 **FINAL REMINDER: EXTRACT THE EXACT NUMBER FROM USER QUERY FOR LIMIT CLAUSE!**
 Examples: "find 2" = LIMIT 2, "show 3" = LIMIT 3, "find two" = LIMIT 2, no number mentioned = LIMIT 100
@@ -66,7 +72,11 @@ FEW_SHOT_EXAMPLES = [
     },
     {
         "user": "Find several parcels in zip code 95110",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, situs_zip_code, ST_AsGeoJSON(wkb_geometry) as geometry, ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres FROM parcels WHERE situs_zip_code = '95110' LIMIT 20",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, situs_zip_code, ST_AsGeoJSON(wkb_geometry) as geometry, ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres FROM parcels WHERE situs_zip_code LIKE '95110%' LIMIT 20",
+    },
+    {
+        "user": "Find the exact property at address: 335 Pioneer Way Mountain View, CA 94041",
+        "sql": "SELECT ogc_fid, apn, situs_house_number, situs_street_name, situs_street_type, situs_city_name, situs_zip_code, shape_area, shape_length, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE situs_house_number = '335' AND situs_street_name = 'PIONEER' AND situs_street_type = 'WY' AND situs_city_name = 'MOUNTAIN VIEW' AND situs_zip_code LIKE '94041%' LIMIT 10",
     },
     {
         "user": "Show me exactly 100 parcels with the largest areas",

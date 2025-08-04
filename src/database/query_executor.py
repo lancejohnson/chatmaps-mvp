@@ -5,7 +5,7 @@ Query executor for safe PostGIS query execution with GeoJSON conversion.
 import re
 import pandas as pd
 from typing import Dict, Any, Tuple
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 from sqlalchemy.exc import SQLAlchemyError
 import json
 
@@ -123,9 +123,22 @@ class QueryExecutor:
             # Add LIMIT if not present and query doesn't already have one
             limited_query = self._ensure_query_limit(sql_query)
 
-            # Execute the query
+            # Execute the query with proper SQLAlchemy result handling
             with engine.connect() as conn:
-                df = pd.read_sql(limited_query, conn)
+                result = conn.execute(text(limited_query))
+                # Convert SQLAlchemy results to regular Python types immediately
+                rows = []
+                columns = list(result.keys())
+
+                for row in result:
+                    # Convert each row to a regular dict with serialized values
+                    row_dict = {}
+                    for i, col in enumerate(columns):
+                        row_dict[col] = self._serialize_value(row[i])
+                    rows.append(row_dict)
+
+                # Create DataFrame from clean Python data
+                df = pd.DataFrame(rows, columns=columns)
 
             if df.empty:
                 return {
@@ -275,5 +288,15 @@ class QueryExecutor:
             return float(value)
         elif hasattr(value, "__int__"):  # Handle other numeric types
             return int(value)
+        elif hasattr(value, "_asdict"):  # Handle SQLAlchemy row objects
+            return dict(value._asdict())
+        elif hasattr(value, "keys") and hasattr(
+            value, "values"
+        ):  # Handle dict-like objects (including immutabledict)
+            try:
+                return dict(value)
+            except Exception:
+                # Fallback if dict conversion fails
+                return str(value)
         else:
             return str(value)

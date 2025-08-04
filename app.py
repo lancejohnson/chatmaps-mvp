@@ -458,7 +458,7 @@ def process_user_query(user_prompt: str):
 
 
 @st.cache_data
-def load_parcels_from_db(limit=1000, simplify_tolerance=0.0001):
+def load_parcels_from_db(limit=500, simplify_tolerance=0.0001):
     """Load parcel data from PostGIS database with performance optimizations"""
     engine = get_db_engine()
     if not engine:

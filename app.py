@@ -159,6 +159,25 @@ ANALYZE_PROPERTIES_TOOL = {
     },
 }
 
+# Define the list values tool for getting distinct values from columns
+LIST_VALUES_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "list_values",
+        "description": "Get distinct/unique values from database columns for data exploration. Use for questions like 'what cities are available?', 'list all zip codes', 'what street names exist?', 'available street types?'",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural language query asking for distinct values (e.g., 'what cities are available', 'list unique zip codes', 'available street names')",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
 
 def execute_search_properties(query: str, max_results: int = 100):
     """
@@ -323,6 +342,121 @@ def execute_analyze_properties(query: str):
         }
 
 
+def execute_list_values(query: str):
+    """
+    Execute the list values query using ListGenerator and QueryExecutor classes.
+
+    Args:
+        query: Natural language query asking for distinct values
+
+    Returns:
+        Dictionary with success status, message, and list of values
+    """
+    try:
+        from src.llm.list_generator import ListGenerator
+        from src.database.query_executor import QueryExecutor
+        from schema import get_llm_schema_context
+
+        # Get cached components
+        db_engine = get_db_engine()
+
+        if not db_engine:
+            return {
+                "success": False,
+                "message": "Database connection not available. Please check your database configuration.",
+                "values": [],
+                "sql_query": None,
+            }
+
+        # Get schema context for the LLM
+        schema_context = get_llm_schema_context("parcels")
+
+        # Generate the SQL query
+        list_generator = ListGenerator()
+        success, sql_query, validation_message = list_generator.generate_and_validate(
+            query, schema_context
+        )
+
+        if not success:
+            return {
+                "success": False,
+                "message": f"❌ List Query Error\n\n{sql_query}",
+                "values": [],
+                "sql_query": None,
+            }
+
+        # Execute the query with reasonable limit for list queries
+        query_executor = QueryExecutor(max_results=500)
+        execution_result = query_executor.execute_query(sql_query, db_engine)
+
+        if not execution_result["success"]:
+            return {
+                "success": False,
+                "message": f"❌ Database Error: {execution_result['message']}",
+                "values": [],
+                "sql_query": sql_query,
+            }
+
+        geojson_data = execution_result["data"]
+
+        if geojson_data is None or execution_result["row_count"] == 0:
+            return {
+                "success": True,
+                "message": "✅ Query executed successfully, but no values found.",
+                "values": [],
+                "sql_query": sql_query,
+            }
+
+        # Extract values from GeoJSON features
+        # For list queries, the values are in the properties of each feature
+        features = geojson_data.get("features", [])
+        values_list = []
+
+        for feature in features:
+            properties = feature.get("properties", {})
+            # Get the first property value (should be our column value)
+            if properties:
+                # Get the first value from properties (our distinct column value)
+                first_key = next(iter(properties.keys()))
+                value = properties[first_key]
+                if value is not None:
+                    values_list.append(value)
+
+        # Remove duplicates and sort (though SQL DISTINCT should handle duplicates)
+        values_list = list(set(values_list))
+
+        # Sort the values for better presentation
+        try:
+            values_list.sort()
+        except TypeError:
+            # If values can't be sorted (mixed types), leave as is
+            pass
+
+        return {
+            "success": True,
+            "message": f"✅ Found {len(values_list)} distinct values",
+            "values": values_list,
+            "sql_query": sql_query,
+            "row_count": len(values_list),
+        }
+
+    except ImportError:
+        # Fallback if ListGenerator is not available
+        return {
+            "success": False,
+            "message": "List values functionality not available. Please ensure all dependencies are installed.",
+            "values": [],
+            "sql_query": None,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error executing list values query: {str(e)}",
+            "values": [],
+            "sql_query": None,
+        }
+
+
 def process_chat_with_function_calling(user_prompt: str, chat_history: list):
     """
     Process a chat message using OpenAI function calling to decide whether to search properties or just chat.
@@ -349,7 +483,7 @@ def process_chat_with_function_calling(user_prompt: str, chat_history: list):
                 "role": "system",
                 "content": """You are a helpful assistant for exploring Santa Clara County property data. 
 
-You have access to two functions. CAREFULLY choose the right one:
+You have access to three functions. CAREFULLY choose the right one:
 
 **analyze_properties** - Use for questions asking for NUMBERS/STATISTICS (no map display):
    - "How many properties..." → COUNT 
@@ -365,9 +499,17 @@ You have access to two functions. CAREFULLY choose the right one:
    - "Properties in San Jose" → Map individual parcels
    - When they want to see specific properties highlighted
 
-KEY DISTINCTION: 
+**list_values** - Use when users want to EXPLORE/LIST what options are available:
+   - "What cities are available?" → List distinct city names
+   - "What zip codes exist?" → List unique zip codes
+   - "Available street names?" → List street names
+   - "What street types are there?" → List street types
+   - Any question asking for distinct/unique values from the database
+
+KEY DISTINCTIONS: 
 - "How many X?" = analyze_properties (returns a number)
 - "Show me X" = search_properties (returns map markers)
+- "What X are available?" = list_values (returns a list of options)
 
 For general conversation, respond normally without using functions.""",
             }
@@ -383,7 +525,7 @@ For general conversation, respond normally without using functions.""",
         response = client.chat.completions.create(
             model="gpt-4.1",
             messages=messages,
-            tools=[SEARCH_PROPERTIES_TOOL, ANALYZE_PROPERTIES_TOOL],
+            tools=[SEARCH_PROPERTIES_TOOL, ANALYZE_PROPERTIES_TOOL, LIST_VALUES_TOOL],
             tool_choice="auto",  # Let GPT decide when to use the tool
             temperature=0.1,
         )
@@ -545,6 +687,89 @@ For general conversation, respond normally without using functions.""",
                         return {
                             "success": False,
                             "response": "❌ **Error:** Could not parse analysis parameters. Please try rephrasing your question.",
+                            "search_results": None,
+                        }
+
+                elif tool_call.function.name == "list_values":
+                    # Extract arguments and execute the list values query
+                    try:
+                        args = json.loads(tool_call.function.arguments)
+                        list_query = args["query"]
+
+                        # Debug: Log what function calling extracted
+                        print(
+                            f"DEBUG - Function calling extracted for list values: query='{list_query}'"
+                        )
+
+                        # Execute the list values query
+                        list_result = execute_list_values(list_query)
+
+                        # Create a follow-up message with the list results
+                        tool_message = {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(
+                                {
+                                    "success": list_result["success"],
+                                    "message": list_result["message"],
+                                    "values": list_result.get("values", []),
+                                    "sql_query": list_result.get("sql_query", ""),
+                                }
+                            ),
+                        }
+
+                        # Get final response from GPT incorporating the list results
+                        final_messages = messages + [message, tool_message]
+                        final_response = client.chat.completions.create(
+                            model="gpt-4.1", messages=final_messages, temperature=0.1
+                        )
+
+                        final_content = final_response.choices[0].message.content
+
+                        # Format the response nicely for list results
+                        if list_result["success"] and list_result.get("values"):
+                            values_list = list_result["values"]
+                            # Format the values nicely
+                            if len(values_list) <= 20:
+                                # If 20 or fewer values, show them all
+                                values_display = ", ".join(str(v) for v in values_list)
+                            else:
+                                # If more than 20, show first 20 and indicate there are more
+                                values_display = (
+                                    ", ".join(str(v) for v in values_list[:20])
+                                    + f"... ({len(values_list)} total)"
+                                )
+
+                            formatted_response = f"""📋 **Available Values**
+
+{final_content}
+
+**Found {len(values_list)} values:**
+{values_display}
+
+**SQL Query Used:**
+```sql
+{list_result.get('sql_query', 'N/A')}
+```"""
+                        else:
+                            formatted_response = f"""❌ **List Values Error**
+
+{final_content}
+
+**Error:** {list_result['message']}"""
+
+                        return {
+                            "success": list_result["success"],
+                            "response": formatted_response,
+                            "search_results": None,  # List values doesn't return map data
+                            "list_results": list_result.get("values"),
+                            "is_list": True,
+                        }
+
+                    except json.JSONDecodeError:
+                        return {
+                            "success": False,
+                            "response": "❌ **Error:** Could not parse list values parameters. Please try rephrasing your question.",
                             "search_results": None,
                         }
 

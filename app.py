@@ -9,12 +9,7 @@ from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import pandas as pd
 from openai import OpenAI
-from schema import (
-    get_primary_key,
-    get_geometry_column,
-    get_display_column,
-    get_llm_schema_context,
-)
+from schema import get_llm_schema_context
 from src.llm.query_generator import QueryGenerator
 from src.database.query_executor import QueryExecutor
 
@@ -871,105 +866,6 @@ def process_user_query(user_prompt: str):
         }
 
 
-@st.cache_data
-def load_parcels_from_db(limit=500, simplify_tolerance=0.0001):
-    """Load parcel data from PostGIS database with performance optimizations"""
-    engine = get_db_engine()
-    if not engine:
-        return None
-
-    try:
-        # Get schema-defined column names
-        table_name = "parcels"
-        id_column = get_primary_key(table_name)
-        geometry_column = get_geometry_column(table_name)
-        display_column = get_display_column(table_name)
-
-        # Query to get parcels with their geometries as GeoJSON and area in acres
-        # Using ST_Simplify for performance and ST_AsGeoJSON for format
-        query = f"""
-        SELECT 
-            {id_column},
-            {display_column},
-            situs_street_name,
-            situs_city_name,
-            situs_house_number,
-            ST_AsGeoJSON(
-                CASE 
-                    WHEN {simplify_tolerance} > 0 THEN ST_Simplify({geometry_column}, {simplify_tolerance})
-                    ELSE {geometry_column} 
-                END
-            ) as geometry_json,
-            ROUND((ST_Area({geometry_column}::geography) / 4047)::numeric, 2) as acres
-        FROM {table_name} 
-        WHERE {geometry_column} IS NOT NULL
-        ORDER BY ST_Area({geometry_column}::geography) DESC  -- Show larger parcels first
-        LIMIT {limit};
-        """
-
-        # Execute query and get results
-        with engine.connect() as conn:
-            df = pd.read_sql(query, conn)
-
-        if df.empty:
-            st.warning("No parcels found in database")
-            return None
-
-        # Create GeoJSON structure manually for better performance
-        features = []
-        for _, row in df.iterrows():
-            if row["geometry_json"]:
-                geometry = json.loads(row["geometry_json"])
-
-                # Build properties from available columns
-                properties = {
-                    "id": row[id_column],
-                    "apn": row[display_column]
-                    if pd.notna(row[display_column])
-                    else "N/A",
-                    "display_name": row[display_column]
-                    if pd.notna(row[display_column])
-                    else f"Parcel {row[id_column]}",
-                    "acres": row.get("acres", 0.0)
-                    if pd.notna(row.get("acres"))
-                    else 0.0,
-                }
-
-                # Add address information if available, otherwise set to empty string
-                address_parts = []
-                if pd.notna(row.get("situs_house_number")):
-                    address_parts.append(str(row["situs_house_number"]))
-                if pd.notna(row.get("situs_street_name")):
-                    address_parts.append(str(row["situs_street_name"]))
-
-                # Always include address field, even if empty
-                properties["address"] = (
-                    " ".join(address_parts) if address_parts else "No address available"
-                )
-
-                # Always include city field
-                properties["city"] = (
-                    str(row["situs_city_name"])
-                    if pd.notna(row.get("situs_city_name"))
-                    else "Unknown city"
-                )
-
-                feature = {
-                    "type": "Feature",
-                    "properties": properties,
-                    "geometry": geometry,
-                }
-                features.append(feature)
-
-        parcels_geojson = {"type": "FeatureCollection", "features": features}
-
-        return parcels_geojson
-
-    except Exception as e:
-        st.error(f"Error loading parcels: {e}")
-        return None
-
-
 def create_santa_clara_map(query_results=None, selected_property=None):
     """Create a Folium map with Santa Clara County boundary and optional query results"""
     # Default Santa Clara County center coordinates
@@ -1093,51 +989,10 @@ def create_santa_clara_map(query_results=None, selected_property=None):
             f"🎯 Showing {len(query_results['features'])} query result{'s' if len(query_results['features']) != 1 else ''} highlighted in orange"
         )
     else:
-        # Load and add default parcels to the map (sample)
-        with st.spinner("Loading sample parcels from database..."):
-            parcels_geojson = load_parcels_from_db(
-                limit=200
-            )  # Reduced limit for performance
-
-        if parcels_geojson:
-            # Add parcels layer to map
-            folium.GeoJson(
-                parcels_geojson,
-                style_function=lambda feature: {
-                    "fillColor": "lightblue",
-                    "color": "blue",
-                    "weight": 1,
-                    "fillOpacity": 0.2,
-                    "opacity": 0.6,
-                },
-                popup=folium.GeoJsonPopup(
-                    fields=["display_name", "address", "city"],
-                    aliases=["Parcel:", "Address:", "City:"],
-                    localize=True,
-                    labels=True,
-                    style="background-color: lightblue;",
-                ),
-                tooltip=folium.GeoJsonTooltip(
-                    fields=["display_name", "address"],
-                    aliases=["Parcel:", "Address:"],
-                    localize=True,
-                    sticky=True,
-                    labels=True,
-                    style="""
-                        background-color: #F0EFEF;
-                        border: 2px solid black;
-                        border-radius: 3px;
-                        box-shadow: 3px;
-                    """,
-                    max_width=800,
-                ),
-            ).add_to(m)
-
-            st.info(
-                f"📍 Showing {len(parcels_geojson.get('features', []))} sample parcels (use chat to search for specific parcels)"
-            )
-        else:
-            st.info("No parcels loaded - check database connection and data")
+        # Show clean map without any default parcel data
+        st.info(
+            "💬 Use the chat below to search for specific parcels, properties, or areas"
+        )
 
     return m
 

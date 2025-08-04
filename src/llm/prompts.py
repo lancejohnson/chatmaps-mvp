@@ -22,7 +22,7 @@ SCHEMA: {schema_context}
 
 
 SPATIAL QUERY PATTERNS:
-- Large parcels: ST_Area(wkb_geometry) > 4047 (1 acre = 4047 sq meters)
+- Large parcels: ST_Area(wkb_geometry::geography) > 4047 (1 acre = 4047 sq meters)
 - Parcels in city: situs_city_name ILIKE '%city_name%'
 - Parcels near point: ST_DWithin(wkb_geometry, ST_Point(lon, lat, 4326), distance_meters)
 - Parcels containing point: ST_Contains(wkb_geometry, ST_Point(lon, lat, 4326))
@@ -41,15 +41,15 @@ Return valid SQL only."""
 FEW_SHOT_EXAMPLES = [
     {
         "user": "Find 3 properties over 3 acres",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE ST_Area(wkb_geometry) > 12141 LIMIT 3",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE ST_Area(wkb_geometry::geography) > 12141 LIMIT 3",
     },
     {
         "user": "Show me 10 parcels over 10 acres",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE ST_Area(wkb_geometry) > 40470 LIMIT 10",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE ST_Area(wkb_geometry::geography) > 40470 LIMIT 10",
     },
     {
         "user": "Find the first 10 large parcels over 1 acre",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE ST_Area(wkb_geometry) > 4047 LIMIT 10",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE ST_Area(wkb_geometry::geography) > 4047 LIMIT 10",
     },
     {
         "user": "Show me 25 parcels in San Jose",
@@ -61,7 +61,7 @@ FEW_SHOT_EXAMPLES = [
     },
     {
         "user": "Show parcels in Palo Alto larger than half an acre",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE situs_city_name ILIKE '%palo alto%' AND ST_Area(wkb_geometry) > 2023 LIMIT 100",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE situs_city_name ILIKE '%palo alto%' AND ST_Area(wkb_geometry::geography) > 2023 LIMIT 100",
     },
     {
         "user": "Find several parcels in zip code 95110",
@@ -69,7 +69,7 @@ FEW_SHOT_EXAMPLES = [
     },
     {
         "user": "Show me exactly 100 parcels with the largest areas",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels ORDER BY ST_Area(wkb_geometry) DESC LIMIT 100",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels ORDER BY ST_Area(wkb_geometry::geography) DESC LIMIT 100",
     },
 ]
 

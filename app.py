@@ -486,10 +486,10 @@ def load_parcels_from_db(limit=500, simplify_tolerance=0.0001):
                     ELSE {geometry_column} 
                 END
             ) as geometry_json,
-            ROUND((ST_Area({geometry_column}) / 4047)::numeric, 2) as acres
+            ROUND((ST_Area({geometry_column}::geography) / 4047)::numeric, 2) as acres
         FROM {table_name} 
         WHERE {geometry_column} IS NOT NULL
-        ORDER BY ST_Area({geometry_column}) DESC  -- Show larger parcels first
+        ORDER BY ST_Area({geometry_column}::geography) DESC  -- Show larger parcels first
         LIMIT {limit};
         """
 

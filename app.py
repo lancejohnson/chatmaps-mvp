@@ -8,6 +8,7 @@ import os
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import pandas as pd
+from openai import OpenAI
 from schema import (
     get_primary_key,
     get_geometry_column,
@@ -97,6 +98,274 @@ def get_query_generator():
 def get_query_executor():
     """Initialize and cache the query executor"""
     return QueryExecutor(max_results=500)
+
+
+@st.cache_resource
+def get_openai_client():
+    """Initialize and cache the OpenAI client"""
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            st.error("OPENAI_API_KEY environment variable not found")
+            return None
+        return OpenAI(api_key=api_key)
+    except Exception as e:
+        st.error(f"Failed to initialize OpenAI client: {e}")
+        return None
+
+
+# Define the search properties tool for OpenAI function calling
+SEARCH_PROPERTIES_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search_properties",
+        "description": "Search for properties in Santa Clara County based on natural language queries about addresses, locations, areas, or property characteristics",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural language query about properties (e.g., 'properties on Main Street', 'homes in San Jose', 'large parcels over 10000 sq ft')",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (default: 100)",
+                    "default": 100,
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
+def execute_search_properties(query: str, max_results: int = 100):
+    """
+    Execute the property search using existing QueryGenerator and QueryExecutor classes.
+
+    Args:
+        query: Natural language query about properties
+        max_results: Maximum number of results to return
+
+    Returns:
+        Dictionary with search results and metadata
+    """
+    try:
+        # Get cached components
+        query_generator = get_query_generator()
+        db_engine = get_db_engine()
+
+        if not query_generator:
+            return {
+                "success": False,
+                "message": "Query generator not available. Please check your OpenAI API key configuration.",
+                "data": None,
+                "row_count": 0,
+            }
+
+        if not db_engine:
+            return {
+                "success": False,
+                "message": "Database connection not available. Please check your database configuration.",
+                "data": None,
+                "row_count": 0,
+            }
+
+        # Use schema context for query generation
+        schema_context = get_llm_schema_context("parcels")
+
+        # Generate and validate SQL query
+        success, sql_or_error, validation_message = (
+            query_generator.generate_and_validate(query, schema_context)
+        )
+
+        if not success:
+            return {
+                "success": False,
+                "message": f"Could not generate a valid SQL query: {sql_or_error}",
+                "data": None,
+                "row_count": 0,
+                "sql_query": None,
+            }
+
+        sql_query = sql_or_error
+
+        # Execute the query with the specified max_results
+        executor_with_limit = QueryExecutor(max_results=max_results)
+        execution_result = executor_with_limit.execute_query(sql_query, db_engine)
+
+        return {
+            "success": execution_result["success"],
+            "message": execution_result["message"],
+            "data": execution_result["data"],
+            "row_count": execution_result["row_count"],
+            "sql_query": sql_query,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error executing property search: {str(e)}",
+            "data": None,
+            "row_count": 0,
+            "sql_query": None,
+        }
+
+
+def process_chat_with_function_calling(user_prompt: str, chat_history: list):
+    """
+    Process a chat message using OpenAI function calling to decide whether to search properties or just chat.
+
+    Args:
+        user_prompt: The user's message
+        chat_history: List of previous messages in format [{"role": "user/assistant", "content": "..."}]
+
+    Returns:
+        Dictionary with response and any search results
+    """
+    client = get_openai_client()
+    if not client:
+        return {
+            "success": False,
+            "response": "❌ Chat service unavailable. Please check your OpenAI API key configuration.",
+            "search_results": None,
+        }
+
+    try:
+        # Prepare messages for OpenAI, including chat history
+        messages = [
+            {
+                "role": "system",
+                "content": """You are a helpful assistant for exploring Santa Clara County property data. 
+                
+You have access to a search_properties function that can query a database of property parcels in Santa Clara County. Use this function when users ask about:
+- Finding properties at specific addresses or streets
+- Searching for properties in specific cities or areas  
+- Looking for properties with certain characteristics (size, etc.)
+- Any question that requires actual property data
+
+For general conversation, questions about how the system works, or non-property related topics, just respond normally without using the function.
+
+When you do find properties, always mention that the results will be highlighted on the map above.""",
+            }
+        ]
+
+        # Add chat history (limit to last 10 messages to avoid token limits)
+        messages.extend(chat_history[-10:])
+
+        # Add the current user message
+        messages.append({"role": "user", "content": user_prompt})
+
+        # Call OpenAI with function calling
+        response = client.chat.completions.create(
+            model="gpt-4.1",
+            messages=messages,
+            tools=[SEARCH_PROPERTIES_TOOL],
+            tool_choice="auto",  # Let GPT decide when to use the tool
+            temperature=0.1,
+        )
+
+        message = response.choices[0].message
+
+        # Check if GPT wants to use the search function
+        if message.tool_calls:
+            for tool_call in message.tool_calls:
+                if tool_call.function.name == "search_properties":
+                    # Extract arguments and execute the search
+                    try:
+                        args = json.loads(tool_call.function.arguments)
+                        search_query = args["query"]
+                        max_results = args.get("max_results", 100)
+
+                        # Execute the property search
+                        search_result = execute_search_properties(
+                            search_query, max_results
+                        )
+
+                        # Create a follow-up message with the search results
+                        tool_message = {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(
+                                {
+                                    "success": search_result["success"],
+                                    "message": search_result["message"],
+                                    "row_count": search_result["row_count"],
+                                    "sql_query": search_result.get("sql_query", ""),
+                                }
+                            ),
+                        }
+
+                        # Get final response from GPT incorporating the search results
+                        final_messages = messages + [message, tool_message]
+                        final_response = client.chat.completions.create(
+                            model="gpt-4.1", messages=final_messages, temperature=0.1
+                        )
+
+                        final_content = final_response.choices[0].message.content
+
+                        # Format the response nicely
+                        if search_result["success"] and search_result["row_count"] > 0:
+                            formatted_response = f"""✅ **Found {search_result['row_count']} propert{'y' if search_result['row_count'] == 1 else 'ies'}**
+
+{final_content}
+
+**SQL Query Used:**
+```sql
+{search_result.get('sql_query', 'N/A')}
+```
+
+🗺️ **The results are now highlighted on the map above!**"""
+                        elif (
+                            search_result["success"] and search_result["row_count"] == 0
+                        ):
+                            formatted_response = f"""ℹ️ **No properties found**
+
+{final_content}
+
+**SQL Query Used:**
+```sql
+{search_result.get('sql_query', 'N/A')}
+```
+
+💡 Try broadening your search criteria or checking the spelling of street names."""
+                        else:
+                            formatted_response = f"""❌ **Search Error**
+
+{final_content}
+
+**Error:** {search_result['message']}"""
+
+                        return {
+                            "success": search_result["success"],
+                            "response": formatted_response,
+                            "search_results": search_result["data"]
+                            if search_result["success"]
+                            else None,
+                            "row_count": search_result["row_count"],
+                        }
+
+                    except json.JSONDecodeError:
+                        return {
+                            "success": False,
+                            "response": "❌ **Error:** Could not parse search parameters. Please try rephrasing your question.",
+                            "search_results": None,
+                        }
+
+        # If no function was called, just return the regular chat response
+        return {
+            "success": True,
+            "response": message.content,
+            "search_results": None,
+            "is_chat": True,  # Flag to indicate this was just conversation
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "response": f"❌ **Chat Error:** {str(e)}\n\nPlease try again or contact support if the issue persists.",
+            "search_results": None,
+        }
 
 
 def process_user_query(user_prompt: str):
@@ -433,7 +702,7 @@ def main():
     # Chat interface section
     st.markdown("### 💬 Chat with Santa Clara County")
     st.markdown(
-        "*Ask questions about parcels, addresses, or areas in Santa Clara County. I'll search the database and highlight results on the map above.*"
+        "*Ask questions about parcels and properties, or just chat! I'll automatically decide whether to search the database or have a conversation. Property search results will be highlighted on the map above.*"
     )
 
     # Display chat messages from history on app rerun
@@ -442,7 +711,7 @@ def main():
             st.markdown(message["content"])
 
     # Chat input with enhanced processing
-    if prompt := st.chat_input("Ask about parcels in Santa Clara County..."):
+    if prompt := st.chat_input("Ask about properties or just chat..."):
         # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
 
@@ -450,55 +719,52 @@ def main():
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Process the user query with loading state
+        # Process the user query with function calling
         with st.chat_message("assistant"):
             # Show loading spinner while processing
-            with st.spinner("🤖 Processing your query..."):
-                with st.empty():
-                    st.write("🧠 Generating SQL query...")
-
-                # Process the query through the LLM pipeline
-                result = process_user_query(prompt)
+            with st.spinner("🤖 Thinking about your request..."):
+                # Process through the new function calling pipeline
+                result = process_chat_with_function_calling(
+                    prompt, st.session_state.messages[:-1]
+                )
 
             # Display the result
-            st.markdown(result["response_message"])
+            st.markdown(result["response"])
 
         # Add assistant response to chat history
         st.session_state.messages.append(
-            {"role": "assistant", "content": result["response_message"]}
+            {"role": "assistant", "content": result["response"]}
         )
 
-        # Update map with new query results if successful (after saving message)
-        if result["success"] and result.get("result_data"):
-            st.session_state.query_results = result["result_data"]
+        # Update map with new query results if we have search results
+        if result.get("search_results"):
+            st.session_state.query_results = result["search_results"]
             # Trigger rerun to update the map
             st.rerun()
-        elif result["success"] and result.get("row_count", 0) == 0:
-            # Clear previous results if no matches found
+        elif result.get("row_count", 0) == 0 and not result.get("is_chat"):
+            # Clear previous results if search returned no matches
             st.session_state.query_results = None
+        # If it's just chat (is_chat=True), don't clear the map
 
     # Add helpful examples
     with st.expander("💡 Example Questions"):
         st.markdown("""
-        Try asking questions like:
-        
-        **Address & Location Searches:**
+        **🗺️ Property Searches** (will query database and highlight results on map):
         - "Find parcels on Main Street"
         - "Show me properties in San Jose"
         - "What parcels are near 123 First Street?"
-        
-        **Area & Size Queries:**
         - "Show me large parcels over 10,000 square feet"
-        - "Find small lots under 5,000 square feet"
-        
-        **City & ZIP Code Searches:**
-        - "Show all parcels in Palo Alto"
         - "Find properties in ZIP code 95110"
-        - "What's in Mountain View?"
-        
-        **Specific Parcel Lookups:**
         - "Find parcel 123-45-678" (APN number)
-        - "Show me parcel with APN starting with 123"
+        
+        **💬 General Chat** (just conversation):
+        - "How does this system work?"
+        - "What data do you have available?"
+        - "Tell me about Santa Clara County"
+        - "What can I search for?"
+        - "How accurate is this property data?"
+        
+        The assistant will automatically decide whether to search the database or just chat based on your question!
         """)
 
     # Add clear results button

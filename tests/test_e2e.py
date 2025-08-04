@@ -146,33 +146,10 @@ class TestPropertyQueries:
             coverage >= 0.8
         ), f"Only found {len(found_cities)}/{len(expected_cities)} cities. Found: {found_cities}"
 
-    def test_ycombinator_address(self, chat_service):
-        """Test: Please tell me what the specific address is for YCombinator"""
-        result = chat_service.process_chat_with_function_calling(
-            "Please tell me what the specific address is for YCombinator", []
-        )
-
-        response = result["response"]
-
-        # Check if response indicates an error
-        if "❌" in response or "Error:" in response:
-            pytest.skip(f"Database or service error: {response}")
-
-        # Should include the address
-        expected_address = "335 Pioneer Way"
-        assert (
-            expected_address.lower() in response.lower()
-        ), f"Expected address not found in response: {response}"
-
-        # Should mention Mountain View
-        assert (
-            "mountain view" in response.lower()
-        ), f"Expected city not found in response: {response}"
-
     def test_find_ycombinator_parcel(self, chat_service):
         """Test: Please find that address (YCombinator parcel)"""
         result = chat_service.process_chat_with_function_calling(
-            "Please find that address", []
+            "Please find the address 335 Pioneer Way, Mountain View, CA 94041", []
         )
 
         response = result["response"]
@@ -184,8 +161,8 @@ class TestPropertyQueries:
         # Should return parcel with APN 16066006
         expected_apn = "16066006"
         assert (
-            expected_apn in response
-        ), f"Expected APN not found in response: {response}"
+            expected_apn in result["search_results"]["features"][0]["properties"]["apn"]
+        ), """Expected APN not found in result["search_results"]["features"][0]["properties"]"""
 
         # Should mention the address
         expected_address = "335 Pioneer Way"

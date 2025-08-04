@@ -513,7 +513,7 @@ def execute_find_specific_property(lookup_value: str, lookup_type: str = "auto")
             apn_clean = re.sub(r"[^\d\-]", "", lookup_value)
             sql_query = f"""
             SELECT ogc_fid, apn, situs_house_number, situs_street_name, situs_city_name, 
-                   situs_zip_code, shape_area, shape_perimeter,
+                   situs_zip_code, shape_area, shape_length,
                    ST_AsGeoJSON(wkb_geometry) as geometry
             FROM parcels 
             WHERE apn = '{apn_clean}' OR apn LIKE '%{apn_clean}%'
@@ -563,7 +563,7 @@ def execute_find_specific_property(lookup_value: str, lookup_type: str = "auto")
                 # Find parcels within 100 meters of the point
                 sql_query = f"""
                 SELECT ogc_fid, apn, situs_house_number, situs_street_name, situs_city_name,
-                       situs_zip_code, shape_area, shape_perimeter,
+                       situs_zip_code, shape_area, shape_length,
                        ST_AsGeoJSON(wkb_geometry) as geometry,
                        ST_Distance(wkb_geometry, ST_SetSRID(ST_MakePoint({lon}, {lat}), 4326)) as distance
                 FROM parcels 

@@ -269,5 +269,11 @@ class QueryExecutor:
             return value.item()
         elif isinstance(value, (list, dict)):
             return value
+        elif isinstance(value, (int, float, bool)):
+            return value
+        elif hasattr(value, "__float__"):  # Handle decimal types
+            return float(value)
+        elif hasattr(value, "__int__"):  # Handle other numeric types
+            return int(value)
         else:
             return str(value)

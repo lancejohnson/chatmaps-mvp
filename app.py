@@ -510,6 +510,9 @@ def load_parcels_from_db(limit=500, simplify_tolerance=0.0001):
                 # Build properties from available columns
                 properties = {
                     "id": row[id_column],
+                    "apn": row[display_column]
+                    if pd.notna(row[display_column])
+                    else "N/A",
                     "display_name": row[display_column]
                     if pd.notna(row[display_column])
                     else f"Parcel {row[id_column]}",
@@ -735,7 +738,7 @@ def display_property_list(features):
 
         # Extract property details
         display_name = properties.get("display_name", f"Property {i}")
-        apn = properties.get("id", "N/A")  # Using id as APN
+        apn = properties.get("apn", "N/A")  # Use dedicated APN field
 
         # Get acreage from properties (calculated by database)
         acres = properties.get("acres", 0.0)

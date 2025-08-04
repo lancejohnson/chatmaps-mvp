@@ -165,19 +165,45 @@ class QueryExecutor:
             }
 
     def _ensure_query_limit(self, sql_query: str) -> str:
-        """Add LIMIT clause if not present to prevent runaway queries."""
+        """Add or replace LIMIT clause to respect max_results setting."""
+        import re
+
+        print(
+            f"DEBUG - QueryExecutor: Input query='{sql_query}', max_results={self.max_results}"
+        )
+
         sql_upper = sql_query.upper()
-
-        # If query already has LIMIT, return as-is
-        if "LIMIT" in sql_upper:
-            return sql_query
-
-        # Add LIMIT clause
         query_stripped = sql_query.strip()
         if query_stripped.endswith(";"):
             query_stripped = query_stripped[:-1]
 
-        return f"{query_stripped} LIMIT {self.max_results};"
+        # If query already has LIMIT, extract the existing limit and use the minimum
+        if "LIMIT" in sql_upper:
+            # Use regex to find and replace the LIMIT clause
+            limit_pattern = r"\bLIMIT\s+(\d+)\b"
+            match = re.search(limit_pattern, sql_query, re.IGNORECASE)
+            if match:
+                existing_limit = int(match.group(1))
+                # Use the smaller of existing limit and max_results
+                final_limit = min(existing_limit, self.max_results)
+                print(
+                    f"DEBUG - Replacing LIMIT {existing_limit} with LIMIT {final_limit}"
+                )
+                # Replace the existing LIMIT with the final limit
+                new_query = re.sub(
+                    limit_pattern,
+                    f"LIMIT {final_limit}",
+                    sql_query,
+                    flags=re.IGNORECASE,
+                )
+                result = new_query.strip()
+                print(f"DEBUG - Final query: '{result}'")
+                return result
+
+        # Add LIMIT clause if not present
+        result = f"{query_stripped} LIMIT {self.max_results};"
+        print(f"DEBUG - Added LIMIT: '{result}'")
+        return result
 
     def _create_empty_geojson(self) -> Dict[str, Any]:
         """Create an empty GeoJSON FeatureCollection."""

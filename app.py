@@ -88,6 +88,8 @@ def get_db_engine():
 def get_query_generator():
     """Initialize and cache the LLM query generator"""
     try:
+        # Clear cache key when prompts change - update this comment to force cache refresh
+        # Cache version: v2.0 - Updated limit handling
         return QueryGenerator()
     except Exception as e:
         st.error(f"Failed to initialize query generator: {e}")
@@ -129,7 +131,7 @@ SEARCH_PROPERTIES_TOOL = {
                 },
                 "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of results to return (default: 100)",
+                    "description": "Maximum number of results to return. Extract this from user query if they specify a number (e.g., 'find 8 properties' = 8, 'show me 25 parcels' = 25, 'a few properties' = 10). Default: 100 if no number specified.",
                     "default": 100,
                 },
             },
@@ -199,7 +201,7 @@ def execute_search_properties(query: str, max_results: int = 100):
             "message": execution_result["message"],
             "data": execution_result["data"],
             "row_count": execution_result["row_count"],
-            "sql_query": sql_query,
+            "sql_query": execution_result["sql_executed"],
         }
 
     except Exception as e:
@@ -276,6 +278,11 @@ When you do find properties, always mention that the results will be highlighted
                         args = json.loads(tool_call.function.arguments)
                         search_query = args["query"]
                         max_results = args.get("max_results", 100)
+
+                        # Debug: Log what function calling extracted
+                        print(
+                            f"DEBUG - Function calling extracted: query='{search_query}', max_results={max_results}"
+                        )
 
                         # Execute the property search
                         search_result = execute_search_properties(

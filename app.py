@@ -742,7 +742,7 @@ def display_property_list(features):
 
         # Get acreage from properties (calculated by database)
         acres = properties.get("acres", 0.0)
-        acreage = f"{acres:.2f}" if acres > 0 else "N/A"
+        acreage = acres if float(acres) > 0 else "N/A"
 
         # Create button for each property
         button_label = f"{i}. APN: {apn} | Acres: {acreage}"

@@ -31,6 +31,7 @@ SPATIAL QUERY PATTERNS:
 REQUIRED COLUMNS:
 - Always include: ogc_fid, apn, situs_street_name, situs_city_name
 - Always include: ST_AsGeoJSON(wkb_geometry) as geometry
+- Always include: ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres
 - Optional: situs_house_number, situs_zip_code
 
 **FINAL REMINDER: EXTRACT THE EXACT NUMBER FROM USER QUERY FOR LIMIT CLAUSE!**
@@ -41,35 +42,35 @@ Return valid SQL only."""
 FEW_SHOT_EXAMPLES = [
     {
         "user": "Find 3 properties over 3 acres",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE ST_Area(wkb_geometry::geography) > 12141 LIMIT 3",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry, ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres FROM parcels WHERE ST_Area(wkb_geometry::geography) > 12141 LIMIT 3",
     },
     {
         "user": "Show me 10 parcels over 10 acres",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE ST_Area(wkb_geometry::geography) > 40470 LIMIT 10",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry, ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres FROM parcels WHERE ST_Area(wkb_geometry::geography) > 40470 LIMIT 10",
     },
     {
         "user": "Find the first 10 large parcels over 1 acre",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE ST_Area(wkb_geometry::geography) > 4047 LIMIT 10",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry, ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres FROM parcels WHERE ST_Area(wkb_geometry::geography) > 4047 LIMIT 10",
     },
     {
         "user": "Show me 25 parcels in San Jose",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE situs_city_name ILIKE '%san jose%' LIMIT 25",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry, ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres FROM parcels WHERE situs_city_name ILIKE '%san jose%' LIMIT 25",
     },
     {
         "user": "Find a few parcels on Main Street",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, situs_house_number, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE situs_street_name ILIKE '%main%' LIMIT 10",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, situs_house_number, ST_AsGeoJSON(wkb_geometry) as geometry, ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres FROM parcels WHERE situs_street_name ILIKE '%main%' LIMIT 10",
     },
     {
         "user": "Show parcels in Palo Alto larger than half an acre",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE situs_city_name ILIKE '%palo alto%' AND ST_Area(wkb_geometry::geography) > 2023 LIMIT 100",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry, ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres FROM parcels WHERE situs_city_name ILIKE '%palo alto%' AND ST_Area(wkb_geometry::geography) > 2023 LIMIT 100",
     },
     {
         "user": "Find several parcels in zip code 95110",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, situs_zip_code, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels WHERE situs_zip_code = '95110' LIMIT 20",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, situs_zip_code, ST_AsGeoJSON(wkb_geometry) as geometry, ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres FROM parcels WHERE situs_zip_code = '95110' LIMIT 20",
     },
     {
         "user": "Show me exactly 100 parcels with the largest areas",
-        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry FROM parcels ORDER BY ST_Area(wkb_geometry::geography) DESC LIMIT 100",
+        "sql": "SELECT ogc_fid, apn, situs_street_name, situs_city_name, ST_AsGeoJSON(wkb_geometry) as geometry, ROUND((ST_Area(wkb_geometry::geography) / 4047)::numeric, 2) as acres FROM parcels ORDER BY ST_Area(wkb_geometry::geography) DESC LIMIT 100",
     },
 ]
 

@@ -4,8 +4,8 @@ Query executor for safe PostGIS query execution with GeoJSON conversion.
 
 import re
 import pandas as pd
-from typing import Dict, List, Any, Tuple, Optional
-from sqlalchemy import Engine, text
+from typing import Dict, Any, Tuple
+from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 import json
 

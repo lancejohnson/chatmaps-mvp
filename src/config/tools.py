@@ -1,5 +1,5 @@
 """
-OpenAI function calling tool definitions for ChatMap MVP.
+OpenAI function calling tool definitions for ChatMaps MVP.
 """
 
 # Define the search properties tool for OpenAI function calling

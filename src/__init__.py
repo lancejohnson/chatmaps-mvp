@@ -1,3 +1,3 @@
 """
-Source code modules for ChatMap MVP.
+Source code modules for ChatMaps MVP.
 """

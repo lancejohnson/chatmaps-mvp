@@ -1,5 +1,5 @@
 """
-Pytest configuration for the chatmap-mvp project.
+Pytest configuration for the chatmaps-mvp project.
 """
 
 import os

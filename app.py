@@ -17,7 +17,7 @@ load_dotenv()
 
 # Page configuration
 st.set_page_config(
-    page_title="ChatMap MVP",
+    page_title="ChatMaps MVP",
     page_icon="🗺️",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -37,7 +37,7 @@ def get_map_service():
 
 
 def main():
-    st.title("🗺️ ChatMap MVP")
+    st.title("🗺️ ChatMaps MVP")
 
     # Show schema info in sidebar for development
     show_schema_info()

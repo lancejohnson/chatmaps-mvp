@@ -1,5 +1,5 @@
 """
-UI components for the ChatMap MVP application.
+UI components for the ChatMaps MVP application.
 """
 
 from typing import List, Dict, Any

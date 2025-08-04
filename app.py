@@ -140,6 +140,25 @@ SEARCH_PROPERTIES_TOOL = {
     },
 }
 
+# Define the analyze properties tool for aggregation/statistical queries
+ANALYZE_PROPERTIES_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "analyze_properties",
+        "description": "Analyze and summarize Santa Clara County property data with statistics like counts, averages, totals, minimums, maximums, and distributions. Use this for questions like 'how many properties', 'what's the average size', 'total area', etc.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural language query requesting statistical analysis (e.g., 'how many properties in San Jose', 'average property size', 'total acreage by city', 'count of large parcels')",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
 
 def execute_search_properties(query: str, max_results: int = 100):
     """
@@ -214,6 +233,96 @@ def execute_search_properties(query: str, max_results: int = 100):
         }
 
 
+def execute_analyze_properties(query: str):
+    """
+    Execute property analysis for aggregation/statistical queries.
+
+    Args:
+        query: Natural language query requesting statistical analysis
+
+    Returns:
+        Dictionary with analysis results and metadata
+    """
+    try:
+        # Get cached components - we'll need a separate analyzer
+        from src.llm.analysis_generator import AnalysisGenerator
+
+        db_engine = get_db_engine()
+
+        if not db_engine:
+            return {
+                "success": False,
+                "message": "Database connection not available. Please check your database configuration.",
+                "data": None,
+                "stats": None,
+            }
+
+        # Initialize analysis generator
+        analysis_generator = AnalysisGenerator()
+
+        # Use schema context for query generation
+        schema_context = get_llm_schema_context("parcels")
+
+        # Generate and validate SQL query for analysis
+        success, sql_or_error, validation_message = (
+            analysis_generator.generate_and_validate(query, schema_context)
+        )
+
+        if not success:
+            return {
+                "success": False,
+                "message": f"Could not generate a valid analysis query: {sql_or_error}",
+                "data": None,
+                "stats": None,
+                "sql_query": None,
+            }
+
+        sql_query = sql_or_error
+
+        # Execute the analysis query - no need for limits on aggregations
+        with db_engine.connect() as conn:
+            df = pd.read_sql(sql_query, conn)
+
+        if df.empty:
+            return {
+                "success": True,
+                "message": "Analysis query executed but returned no results",
+                "data": None,
+                "stats": {},
+                "sql_query": sql_query,
+            }
+
+        # Convert DataFrame to simple statistics format
+        stats_data = df.to_dict("records")[0] if len(df) == 1 else df.to_dict("records")
+
+        return {
+            "success": True,
+            "message": "Analysis completed successfully",
+            "data": stats_data,
+            "stats": stats_data,
+            "sql_query": sql_query,
+            "row_count": len(df),
+        }
+
+    except ImportError:
+        # Fallback if AnalysisGenerator is not available
+        return {
+            "success": False,
+            "message": "Analysis functionality not available. Please ensure all dependencies are installed.",
+            "data": None,
+            "stats": None,
+            "sql_query": None,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error executing property analysis: {str(e)}",
+            "data": None,
+            "stats": None,
+            "sql_query": None,
+        }
+
+
 def process_chat_with_function_calling(user_prompt: str, chat_history: list):
     """
     Process a chat message using OpenAI function calling to decide whether to search properties or just chat.
@@ -239,16 +348,28 @@ def process_chat_with_function_calling(user_prompt: str, chat_history: list):
             {
                 "role": "system",
                 "content": """You are a helpful assistant for exploring Santa Clara County property data. 
-                
-You have access to a search_properties function that can query a database of property parcels in Santa Clara County. Use this function when users ask about:
-- Finding properties at specific addresses or streets
-- Searching for properties in specific cities or areas  
-- Looking for properties with certain characteristics (size, etc.)
-- Any question that requires actual property data
 
-For general conversation, questions about how the system works, or non-property related topics, just respond normally without using the function.
+You have access to two functions. CAREFULLY choose the right one:
 
-When you do find properties, always mention that the results will be highlighted on the map above.""",
+**analyze_properties** - Use for questions asking for NUMBERS/STATISTICS (no map display):
+   - "How many properties..." → COUNT 
+   - "What's the average..." → AVERAGE
+   - "What's the total..." → SUM
+   - "How many properties over X acres?" → COUNT with condition
+   - "Average property size in [city]?" → AVERAGE with filter
+   - Any question where the answer is a NUMBER or STATISTIC
+
+**search_properties** - Use when users want to SEE/FIND individual properties on the map:
+   - "Show me properties over X acres" → Display on map
+   - "Find properties on Main Street" → Show locations  
+   - "Properties in San Jose" → Map individual parcels
+   - When they want to see specific properties highlighted
+
+KEY DISTINCTION: 
+- "How many X?" = analyze_properties (returns a number)
+- "Show me X" = search_properties (returns map markers)
+
+For general conversation, respond normally without using functions.""",
             }
         ]
 
@@ -262,14 +383,14 @@ When you do find properties, always mention that the results will be highlighted
         response = client.chat.completions.create(
             model="gpt-4.1",
             messages=messages,
-            tools=[SEARCH_PROPERTIES_TOOL],
+            tools=[SEARCH_PROPERTIES_TOOL, ANALYZE_PROPERTIES_TOOL],
             tool_choice="auto",  # Let GPT decide when to use the tool
             temperature=0.1,
         )
 
         message = response.choices[0].message
 
-        # Check if GPT wants to use the search function
+        # Check if GPT wants to use the search or analyze function
         if message.tool_calls:
             for tool_call in message.tool_calls:
                 if tool_call.function.name == "search_properties":
@@ -356,6 +477,74 @@ When you do find properties, always mention that the results will be highlighted
                         return {
                             "success": False,
                             "response": "❌ **Error:** Could not parse search parameters. Please try rephrasing your question.",
+                            "search_results": None,
+                        }
+
+                elif tool_call.function.name == "analyze_properties":
+                    # Extract arguments and execute the analysis
+                    try:
+                        args = json.loads(tool_call.function.arguments)
+                        analysis_query = args["query"]
+
+                        # Debug: Log what function calling extracted
+                        print(
+                            f"DEBUG - Function calling extracted for analysis: query='{analysis_query}'"
+                        )
+
+                        # Execute the property analysis
+                        analysis_result = execute_analyze_properties(analysis_query)
+
+                        # Create a follow-up message with the analysis results
+                        tool_message = {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(
+                                {
+                                    "success": analysis_result["success"],
+                                    "message": analysis_result["message"],
+                                    "stats": analysis_result.get("stats", {}),
+                                    "sql_query": analysis_result.get("sql_query", ""),
+                                }
+                            ),
+                        }
+
+                        # Get final response from GPT incorporating the analysis results
+                        final_messages = messages + [message, tool_message]
+                        final_response = client.chat.completions.create(
+                            model="gpt-4.1", messages=final_messages, temperature=0.1
+                        )
+
+                        final_content = final_response.choices[0].message.content
+
+                        # Format the response nicely for analysis results
+                        if analysis_result["success"] and analysis_result.get("stats"):
+                            formatted_response = f"""📊 **Analysis Results**
+
+{final_content}
+
+**SQL Query Used:**
+```sql
+{analysis_result.get('sql_query', 'N/A')}
+```"""
+                        else:
+                            formatted_response = f"""❌ **Analysis Error**
+
+{final_content}
+
+**Error:** {analysis_result['message']}"""
+
+                        return {
+                            "success": analysis_result["success"],
+                            "response": formatted_response,
+                            "search_results": None,  # Analysis doesn't return map data
+                            "analysis_results": analysis_result.get("stats"),
+                            "is_analysis": True,
+                        }
+
+                    except json.JSONDecodeError:
+                        return {
+                            "success": False,
+                            "response": "❌ **Error:** Could not parse analysis parameters. Please try rephrasing your question.",
                             "search_results": None,
                         }
 

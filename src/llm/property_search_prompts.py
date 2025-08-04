@@ -1,5 +1,5 @@
 """
-Prompt templates and examples for LLM query generation.
+Prompt templates and examples for LLM property search query generation.
 """
 
 SYSTEM_PROMPT_TEMPLATE = """You are a PostGIS SQL expert for Santa Clara County parcel data.

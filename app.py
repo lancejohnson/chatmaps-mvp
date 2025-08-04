@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import pandas as pd
 from openai import OpenAI
 from schema import get_llm_schema_context
-from src.llm.query_generator import QueryGenerator
+from src.llm.property_search_generator import PropertySearchGenerator
 from src.database.query_executor import QueryExecutor
 
 # Load environment variables
@@ -85,7 +85,7 @@ def get_query_generator():
     try:
         # Clear cache key when prompts change - update this comment to force cache refresh
         # Cache version: v2.0 - Updated limit handling
-        return QueryGenerator()
+        return PropertySearchGenerator()
     except Exception as e:
         st.error(f"Failed to initialize query generator: {e}")
         return None
@@ -201,7 +201,7 @@ FIND_SPECIFIC_PROPERTY_TOOL = {
 
 def execute_search_properties(query: str, max_results: int = 100):
     """
-    Execute the property search using existing QueryGenerator and QueryExecutor classes.
+    Execute the property search using existing PropertySearchGenerator and QueryExecutor classes.
 
     Args:
         query: Natural language query about properties
@@ -364,7 +364,7 @@ def execute_analyze_properties(query: str):
 
 def execute_list_values(query: str):
     """
-    Execute the list values query using ListGenerator and QueryExecutor classes.
+    Execute the list values query using ListValuesGenerator and QueryExecutor classes.
 
     Args:
         query: Natural language query asking for distinct values
@@ -373,7 +373,7 @@ def execute_list_values(query: str):
         Dictionary with success status, message, and list of values
     """
     try:
-        from src.llm.list_generator import ListGenerator
+        from src.llm.list_values_generator import ListValuesGenerator
         from src.database.query_executor import QueryExecutor
         from schema import get_llm_schema_context
 
@@ -392,7 +392,7 @@ def execute_list_values(query: str):
         schema_context = get_llm_schema_context("parcels")
 
         # Generate the SQL query
-        list_generator = ListGenerator()
+        list_generator = ListValuesGenerator()
         success, sql_query, validation_message = list_generator.generate_and_validate(
             query, schema_context
         )
@@ -461,7 +461,7 @@ def execute_list_values(query: str):
         }
 
     except ImportError:
-        # Fallback if ListGenerator is not available
+        # Fallback if ListValuesGenerator is not available
         return {
             "success": False,
             "message": "List values functionality not available. Please ensure all dependencies are installed.",
@@ -1108,7 +1108,7 @@ def process_user_query(user_prompt: str):
         return {
             "success": False,
             "response_message": "❌ **Query Generator Error**\n\nThe AI query generator is not available. Please check your OpenAI API key configuration.",
-            "error_details": "QueryGenerator initialization failed",
+            "error_details": "PropertySearchGenerator initialization failed",
         }
 
     if not db_engine:

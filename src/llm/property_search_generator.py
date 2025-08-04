@@ -1,20 +1,20 @@
 """
-LLM-powered SQL query generator for natural language to PostGIS queries.
+LLM-powered SQL query generator for natural language to PostGIS property search queries.
 """
 
 import os
 import re
 from typing import Tuple, Optional
 from openai import OpenAI
-from .prompts import create_chat_messages
+from .property_search_prompts import create_chat_messages
 
 
-class QueryGenerator:
-    """Generates PostGIS SQL queries from natural language using OpenAI GPT models."""
+class PropertySearchGenerator:
+    """Generates PostGIS SQL queries for property searches from natural language using OpenAI GPT models."""
 
     def __init__(self, model: str = "gpt-4.1", api_key: Optional[str] = None):
         """
-        Initialize the query generator.
+        Initialize the property search query generator.
 
         Args:
             model: OpenAI model to use (default: gpt-4.1)

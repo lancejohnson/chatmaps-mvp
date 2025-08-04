@@ -471,7 +471,7 @@ def load_parcels_from_db(limit=1000, simplify_tolerance=0.0001):
         geometry_column = get_geometry_column(table_name)
         display_column = get_display_column(table_name)
 
-        # Query to get parcels with their geometries as GeoJSON
+        # Query to get parcels with their geometries as GeoJSON and area in acres
         # Using ST_Simplify for performance and ST_AsGeoJSON for format
         query = f"""
         SELECT 
@@ -485,7 +485,8 @@ def load_parcels_from_db(limit=1000, simplify_tolerance=0.0001):
                     WHEN {simplify_tolerance} > 0 THEN ST_Simplify({geometry_column}, {simplify_tolerance})
                     ELSE {geometry_column} 
                 END
-            ) as geometry_json
+            ) as geometry_json,
+            ROUND((ST_Area({geometry_column}) / 4047)::numeric, 2) as acres
         FROM {table_name} 
         WHERE {geometry_column} IS NOT NULL
         ORDER BY ST_Area({geometry_column}) DESC  -- Show larger parcels first
@@ -512,6 +513,9 @@ def load_parcels_from_db(limit=1000, simplify_tolerance=0.0001):
                     "display_name": row[display_column]
                     if pd.notna(row[display_column])
                     else f"Parcel {row[id_column]}",
+                    "acres": row.get("acres", 0.0)
+                    if pd.notna(row.get("acres"))
+                    else 0.0,
                 }
 
                 # Add address information if available, otherwise set to empty string
@@ -549,13 +553,22 @@ def load_parcels_from_db(limit=1000, simplify_tolerance=0.0001):
         return None
 
 
-def create_santa_clara_map(query_results=None):
+def create_santa_clara_map(query_results=None, selected_property=None):
     """Create a Folium map with Santa Clara County boundary and optional query results"""
-    # Santa Clara County center coordinates
-    santa_clara_center = [37.3382, -121.8863]
+    # Default Santa Clara County center coordinates
+    default_center = [37.3382, -121.8863]
+    default_zoom = 10
+
+    # If a property is selected, center on it with higher zoom
+    if selected_property and selected_property.get("coordinates"):
+        map_center = selected_property["coordinates"]
+        map_zoom = 16  # Zoom in closer to the selected property
+    else:
+        map_center = default_center
+        map_zoom = default_zoom
 
     # Create the map
-    m = folium.Map(location=santa_clara_center, zoom_start=10, tiles="OpenStreetMap")
+    m = folium.Map(location=map_center, zoom_start=map_zoom, tiles="OpenStreetMap")
 
     # Load boundary from GeoJSON file
     boundary_geojson, properties = load_santa_clara_boundary()
@@ -595,36 +608,69 @@ def create_santa_clara_map(query_results=None):
     # If we have query results, display them prominently
     if query_results and query_results.get("features"):
         # Add query results layer to map
-        folium.GeoJson(
-            query_results,
-            style_function=lambda feature: {
-                "fillColor": "orange",
-                "color": "darkorange",
-                "weight": 2,
-                "fillOpacity": 0.6,
-                "opacity": 1.0,
-            },
-            popup=folium.GeoJsonPopup(
-                fields=list(query_results["features"][0]["properties"].keys()),
-                localize=True,
-                labels=True,
-                style="background-color: orange; color: black;",
-            ),
-            tooltip=folium.GeoJsonTooltip(
-                fields=list(query_results["features"][0]["properties"].keys())[:3],
-                localize=True,
-                sticky=True,
-                labels=True,
-                style="""
+        for idx, feature in enumerate(query_results["features"]):
+            # Check if this feature is the selected property
+            is_selected = (
+                selected_property and selected_property.get("index") == idx + 1
+            )
+
+            # Different styles for selected vs unselected properties
+            if is_selected:
+                style = {
+                    "fillColor": "red",
+                    "color": "darkred",
+                    "weight": 3,
+                    "fillOpacity": 0.8,
+                    "opacity": 1.0,
+                }
+                popup_style = "background-color: red; color: white;"
+                tooltip_style = """
+                    background-color: red;
+                    color: white;
+                    border: 3px solid darkred;
+                    border-radius: 3px;
+                    box-shadow: 3px;
+                """
+            else:
+                style = {
+                    "fillColor": "orange",
+                    "color": "darkorange",
+                    "weight": 2,
+                    "fillOpacity": 0.6,
+                    "opacity": 1.0,
+                }
+                popup_style = "background-color: orange; color: black;"
+                tooltip_style = """
                     background-color: orange;
                     color: black;
                     border: 2px solid darkorange;
                     border-radius: 3px;
                     box-shadow: 3px;
-                """,
-                max_width=800,
-            ),
-        ).add_to(m)
+                """
+
+            # Add individual feature to map
+            folium.GeoJson(
+                {
+                    "type": "Feature",
+                    "properties": feature["properties"],
+                    "geometry": feature["geometry"],
+                },
+                style_function=lambda x, style=style: style,
+                popup=folium.GeoJsonPopup(
+                    fields=list(feature["properties"].keys()),
+                    localize=True,
+                    labels=True,
+                    style=popup_style,
+                ),
+                tooltip=folium.GeoJsonTooltip(
+                    fields=list(feature["properties"].keys())[:3],
+                    localize=True,
+                    sticky=True,
+                    labels=True,
+                    style=tooltip_style,
+                    max_width=800,
+                ),
+            ).add_to(m)
 
         st.success(
             f"🎯 Showing {len(query_results['features'])} query result{'s' if len(query_results['features']) != 1 else ''} highlighted in orange"
@@ -679,6 +725,66 @@ def create_santa_clara_map(query_results=None):
     return m
 
 
+def display_property_list(features):
+    """Display a clickable list of properties with APN and acreage"""
+    st.subheader("📋 Found Properties")
+
+    for i, feature in enumerate(features, 1):
+        properties = feature.get("properties", {})
+        geometry = feature.get("geometry", {})
+
+        # Extract property details
+        display_name = properties.get("display_name", f"Property {i}")
+        apn = properties.get("id", "N/A")  # Using id as APN
+
+        # Get acreage from properties (calculated by database)
+        acres = properties.get("acres", 0.0)
+        acreage = f"{acres:.2f}" if acres > 0 else "N/A"
+
+        # Create button for each property
+        button_label = f"{i}. APN: {apn} | Acres: {acreage}"
+
+        if st.button(
+            button_label, key=f"property_{i}", help=f"Click to zoom to {display_name}"
+        ):
+            # Extract coordinates for map centering
+            if geometry and geometry.get("coordinates"):
+                coords = extract_center_coordinates(geometry)
+                st.session_state.selected_property = {
+                    "coordinates": coords,
+                    "feature": feature,
+                    "index": i,
+                }
+                st.rerun()
+
+
+def extract_center_coordinates(geometry):
+    """Extract center coordinates from geometry for map centering"""
+    try:
+        if geometry["type"] == "Polygon":
+            # Get first ring of polygon
+            coords = geometry["coordinates"][0]
+            # Calculate centroid (simple average)
+            lats = [coord[1] for coord in coords]
+            lngs = [coord[0] for coord in coords]
+            center_lat = sum(lats) / len(lats)
+            center_lng = sum(lngs) / len(lngs)
+            return [center_lat, center_lng]
+        elif geometry["type"] == "Point":
+            return [geometry["coordinates"][1], geometry["coordinates"][0]]
+        elif geometry["type"] == "MultiPolygon":
+            # Use first polygon
+            coords = geometry["coordinates"][0][0]
+            lats = [coord[1] for coord in coords]
+            lngs = [coord[0] for coord in coords]
+            center_lat = sum(lats) / len(lats)
+            center_lng = sum(lngs) / len(lngs)
+            return [center_lat, center_lng]
+    except (KeyError, IndexError, TypeError):
+        pass
+    return None
+
+
 def show_schema_info():
     """Display schema information in the sidebar for debugging/development"""
     with st.sidebar:
@@ -700,11 +806,27 @@ def main():
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Create and display the map (with current query results if any)
-    map_obj = create_santa_clara_map(st.session_state.query_results)
+    # Initialize session state for selected property
+    if "selected_property" not in st.session_state:
+        st.session_state.selected_property = None
 
-    # Display the map using streamlit-folium
-    st_folium(map_obj, width=800, height=500)
+    # Create columns layout - map on left, property list on right
+    col_map, col_properties = st.columns([2, 1])
+
+    with col_map:
+        # Create and display the map (with current query results if any)
+        map_obj = create_santa_clara_map(
+            st.session_state.query_results, st.session_state.selected_property
+        )
+        # Display the map using streamlit-folium
+        st_folium(map_obj, width=800, height=500)
+
+    with col_properties:
+        # Display property list if we have query results
+        if st.session_state.query_results and st.session_state.query_results.get(
+            "features"
+        ):
+            display_property_list(st.session_state.query_results["features"])
 
     # Chat interface section
     st.markdown("### 💬 Chat with Santa Clara County")

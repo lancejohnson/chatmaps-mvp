@@ -164,22 +164,55 @@ import time
 
 def test_health_check():
     """Test if we can connect to the Streamlit server after it starts"""
-    time.sleep(10)  # Wait for Streamlit to start
+    time.sleep(15)  # Wait for Streamlit to start
     try:
+        import urllib.request
+        import urllib.error
+
         port = os.getenv("PORT", "8080")
-        result = subprocess.run(
-            ["curl", "-f", f"http://localhost:{port}/"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0:
-            print(f"🌐 Health check SUCCESS: App responds on port {port}")
-        else:
-            print(f"❌ Health check FAILED: {result.stderr}")
+        url = f"http://localhost:{port}/"
+        print(f"🔍 Testing connection to {url}")
+
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            status = response.getcode()
+            print(f"🌐 Health check SUCCESS: Status {status}")
+
+    except urllib.error.URLError as e:
+        print(f"❌ Health check FAILED: {e}")
     except Exception as e:
         print(f"❌ Health check ERROR: {e}")
 
 
 # Start health check in background
 threading.Thread(target=test_health_check, daemon=True).start()
+
+
+def test_railway_routing():
+    """Test Railway's routing after more time"""
+    time.sleep(30)  # Wait longer for Railway routing
+    try:
+        import urllib.request
+        import urllib.error
+
+        # Test Railway's public domain
+        public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+        if public_domain:
+            url = f"https://{public_domain}/"
+            print(f"🔍 Testing Railway public domain: {url}")
+
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=15) as response:
+                status = response.getcode()
+                print(f"🌐 Railway routing SUCCESS: Status {status}")
+        else:
+            print("❌ No Railway public domain found")
+
+    except urllib.error.URLError as e:
+        print(f"❌ Railway routing FAILED: {e}")
+    except Exception as e:
+        print(f"❌ Railway routing ERROR: {e}")
+
+
+# Start Railway routing test
+threading.Thread(target=test_railway_routing, daemon=True).start()

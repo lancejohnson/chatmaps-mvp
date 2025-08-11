@@ -7,3 +7,4 @@ python-dotenv
 openai
 sqlparse
 pytest>=7.0.0
+flask

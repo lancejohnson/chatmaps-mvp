@@ -80,4 +80,56 @@ try:
 except Exception as e:
     print(f"  ❌ Boundary file check failed: {e}")
 
+print("\nTesting OpenAI API connection:")
+try:
+    from openai import OpenAI
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        print(f"  OPENAI_API_KEY found: {api_key[:20]}...")
+        client = OpenAI(api_key=api_key)
+        # Don't actually call the API to avoid costs, just test client creation
+        print("  ✅ OpenAI client created successfully")
+    else:
+        print("  ❌ OPENAI_API_KEY not found")
+except Exception as e:
+    print(f"  ❌ OpenAI client creation failed: {e}")
+
+print("\nTesting service imports:")
+try:
+    from src.services.chat_service import ChatService
+
+    print("  ✅ ChatService import successful")
+
+    from src.services.map_service import MapService
+
+    print("  ✅ MapService import successful")
+
+    from src.services.property_service import PropertyService
+
+    print("  ✅ PropertyService import successful")
+
+    # Test basic service initialization (without full functionality)
+    print("  🔄 Testing basic service creation...")
+
+except Exception as e:
+    print(f"  ❌ Service import failed: {e}")
+
+print("\nTesting Streamlit imports:")
+try:
+    import streamlit as st
+
+    print("  ✅ Streamlit import successful")
+
+    from streamlit_folium import st_folium
+
+    print("  ✅ Streamlit-folium import successful")
+
+    import folium
+
+    print("  ✅ Folium import successful")
+
+except Exception as e:
+    print(f"  ❌ Streamlit import failed: {e}")
+
 print("=== End Debug Info ===")

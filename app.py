@@ -1,6 +1,7 @@
 import streamlit as st
 from streamlit_folium import st_folium
 from dotenv import load_dotenv
+import os
 
 from src.services.chat_service import ChatService
 from src.services.map_service import MapService
@@ -15,6 +16,15 @@ from src.ui.components import (
 # Load environment variables
 load_dotenv()
 
+# Check for required environment variables early
+required_env_vars = ["DATABASE_URL", "OPENAI_API_KEY"]
+missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+
+if missing_vars:
+    st.error(f"❌ Missing required environment variables: {', '.join(missing_vars)}")
+    st.error("Please check your environment configuration.")
+    st.stop()
+
 # Page configuration
 st.set_page_config(
     page_title="ChatMaps MVP",
@@ -27,13 +37,21 @@ st.set_page_config(
 @st.cache_resource
 def get_chat_service():
     """Initialize and cache the chat service."""
-    return ChatService()
+    try:
+        return ChatService()
+    except Exception as e:
+        st.error(f"❌ Failed to initialize chat service: {str(e)}")
+        return None
 
 
 @st.cache_resource
 def get_map_service():
     """Initialize and cache the map service."""
-    return MapService()
+    try:
+        return MapService()
+    except Exception as e:
+        st.error(f"❌ Failed to initialize map service: {str(e)}")
+        return None
 
 
 def main():
@@ -55,6 +73,11 @@ def main():
     # Get services
     chat_service = get_chat_service()
     map_service = get_map_service()
+    
+    # Check if services initialized successfully
+    if not chat_service or not map_service:
+        st.error("❌ Application failed to initialize properly. Please check the deployment logs.")
+        st.stop()
 
     # Create columns layout - map on left, property list on right
     col_map, col_properties = st.columns([2, 1])

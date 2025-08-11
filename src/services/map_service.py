@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
 import folium
-import geopandas as gpd
+
+# Removed heavy geopandas dependency to simplify deployment on platforms like Railway
 import streamlit as st
 
 
@@ -36,14 +37,23 @@ class MapService:
                 self._boundary_cache = (None, None)
                 return None, None
 
-            # Load the GeoJSON file
-            boundary_gdf = gpd.read_file(boundary_file)
+            # Load the GeoJSON file without geopandas
+            with open(boundary_file, "r") as f:
+                boundary_geojson = json.load(f)
 
-            # Convert to GeoJSON format for Folium
-            boundary_geojson = json.loads(boundary_gdf.to_json())
-
-            # Extract properties for display
-            properties = boundary_gdf.iloc[0].drop("geometry").to_dict()
+            # Extract first feature's properties if available
+            properties = {}
+            try:
+                if (
+                    isinstance(boundary_geojson, dict)
+                    and boundary_geojson.get("type") == "FeatureCollection"
+                    and boundary_geojson.get("features")
+                ):
+                    properties = (
+                        boundary_geojson["features"][0].get("properties", {}) or {}
+                    )
+            except Exception:
+                properties = {}
 
             self._boundary_cache = (boundary_geojson, properties)
             return boundary_geojson, properties

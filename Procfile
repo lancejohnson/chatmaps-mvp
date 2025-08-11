@@ -1,1 +1,1 @@
-web: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+web: python debug_env.py && streamlit run app.py --server.port ${PORT:-8080} --server.address 0.0.0.0

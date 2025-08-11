@@ -1,1 +1,1 @@
-web: python debug_env.py && echo "Starting Streamlit on port ${PORT}..." && streamlit run app_simple.py --server.port ${PORT} --server.address 0.0.0.0 --logger.level debug
+web: python debug_env.py && echo "Starting Streamlit on port ${PORT}..." && streamlit run app_simple.py --server.port ${PORT} --server.address 0.0.0.0 --server.headless true --browser.gatherUsageStats false --server.enableCORS false --server.enableXsrfProtection false

@@ -155,3 +155,31 @@ except Exception as e:
 
 print("=== End Debug Info ===")
 print("🚀 About to start Streamlit server...")
+
+# Add a background health check test
+import subprocess
+import threading
+import time
+
+
+def test_health_check():
+    """Test if we can connect to the Streamlit server after it starts"""
+    time.sleep(10)  # Wait for Streamlit to start
+    try:
+        port = os.getenv("PORT", "8080")
+        result = subprocess.run(
+            ["curl", "-f", f"http://localhost:{port}/"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            print(f"🌐 Health check SUCCESS: App responds on port {port}")
+        else:
+            print(f"❌ Health check FAILED: {result.stderr}")
+    except Exception as e:
+        print(f"❌ Health check ERROR: {e}")
+
+
+# Start health check in background
+threading.Thread(target=test_health_check, daemon=True).start()

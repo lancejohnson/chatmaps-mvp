@@ -57,6 +57,10 @@ class PropertyService:
                 st.error("DATABASE_URL environment variable not found")
                 return None
 
+            # Fix postgres:// to postgresql:// if needed (Railway compatibility)
+            if database_url.startswith("postgres://"):
+                database_url = database_url.replace("postgres://", "postgresql://", 1)
+
             engine = create_engine(database_url)
 
             # Test connection

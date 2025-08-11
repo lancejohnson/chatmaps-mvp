@@ -31,6 +31,12 @@ try:
     database_url = os.getenv("DATABASE_URL")
     if database_url:
         print(f"  DATABASE_URL found: {database_url[:50]}...")
+
+        # Fix postgres:// to postgresql:// if needed (Railway compatibility)
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
+            print("  🔧 Fixed postgres:// to postgresql://")
+
         engine = create_engine(database_url)
         with engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))

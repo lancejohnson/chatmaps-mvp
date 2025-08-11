@@ -132,4 +132,26 @@ try:
 except Exception as e:
     print(f"  ❌ Streamlit import failed: {e}")
 
+print("\nTesting port binding:")
+try:
+    import socket
+
+    port = int(os.getenv("PORT", "8080"))
+    print(f"  Checking if port {port} is available...")
+
+    # Test if we can bind to the port
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    result = sock.bind_ex(("0.0.0.0", port))
+    sock.close()
+
+    if result == 0:
+        print(f"  ✅ Port {port} is available for binding")
+    else:
+        print(f"  ❌ Port {port} is already in use or unavailable")
+
+except Exception as e:
+    print(f"  ❌ Port binding test failed: {e}")
+
 print("=== End Debug Info ===")
+print("🚀 About to start Streamlit server...")

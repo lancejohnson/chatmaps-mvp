@@ -1,7 +1,11 @@
+print("🔄 Starting app.py execution...")
+
 import streamlit as st
 from streamlit_folium import st_folium
 from dotenv import load_dotenv
 import os
+
+print("✅ Basic imports completed")
 
 from src.services.chat_service import ChatService
 from src.services.map_service import MapService
@@ -13,8 +17,12 @@ from src.ui.components import (
     display_chat_interface_header,
 )
 
+print("✅ All imports completed")
+
 # Load environment variables
 load_dotenv()
+
+print("✅ Environment variables loaded")
 
 # Check for required environment variables early
 required_env_vars = ["DATABASE_URL", "OPENAI_API_KEY"]
@@ -73,10 +81,12 @@ def main():
     # Get services
     chat_service = get_chat_service()
     map_service = get_map_service()
-    
+
     # Check if services initialized successfully
     if not chat_service or not map_service:
-        st.error("❌ Application failed to initialize properly. Please check the deployment logs.")
+        st.error(
+            "❌ Application failed to initialize properly. Please check the deployment logs."
+        )
         st.stop()
 
     # Create columns layout - map on left, property list on right
